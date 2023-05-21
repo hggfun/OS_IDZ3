@@ -1,6 +1,6 @@
-# ИДЗ 2, Зиганшин Алим, БПИ216, Вариант 4
+# ИДЗ 3, Зиганшин Алим, БПИ216, Вариант 4
 
-Выполнены пункты на оценку 4, 5, 6, 7. Для программ на 4, 5 и 6 один вывод (Все потоки внутри одной программы). На 7 другой формат вывода (т. к. несколько единиц компиляции). Код программы и результаты работы предоставлены в отчете. Для завершения работы программы можно использовать Ctrl + C.
+Выполнены пункты на оценку 4-5 и 6-7. Для программ на 4, 5 и 6 один вывод (Все потоки внутри одной программы). Код программы и результаты работы предоставлены в отчете. Для завершения работы программы можно использовать Ctrl + C.
 
 ## Задача:
 
@@ -15,432 +15,549 @@
 
 ## Сценарий решаемой задачи
 
-Поскольку количество писателей не оговорено, я решил ввести 2 писателей и 4 читателей (такого количество достаточно, для проверки их взаимодейсвтия)
+Поскольку количество писателей не оговорено, я решил ввести одного писателя и 3 читателей (такого количество достаточно, для проверки их взаимодейсвтия)
 
-Я использую POSIX для хранения семафоров. Изначально писатель пишет в файл. Когда дописывает, либо читатели успевают начать читать, либо какой-либо писатель успевает начать снова писать (и читатели ждут пока он допишет снова)
+В данном случае, писатель пишет сообщения не прирываясь ни на секунду. Читатели же, каждые две секунды захватывают мьютекс и пытаются прочитать.
 
-Каждый семафор и изначальная запись инициализируются в начале работы программы, в конце работы память освобождается.
+(в случае с наблюдателем, он выводит все, что видит, т.е. в основном запись)
 
 Формат вывода таков: Писатель выводит в консоль, что он записал, а читатель - что он прочитал
 
-## Вывод программ на оценку 4, 5 и 6
+## Код читателя, писателя, наблюдателя
+Этот код не менялся, поэтому предлагаю ознакомиться сразу:
 
-по сути меняли только типы работы с памятью и семафорами. Вывод везде одинаковый (при разных запусках может различаться порядок вывода, в силу рандомности)
-
-![4-6point.png](https://github.com/hggfun/OS_IDZ2/blob/main/4-6point.png)
-
-## Отчет на 4 балла
-
-Процессы писателей и читателей взаимодействуют через именованные POSIX семафоры. Разделяемая память POSIX используется для хранения базы данных (БД - условно, вместо нее я использую обычный int)
-
+Писатель: генерирует случайное число до 100, которое передает в запросе на сервер. Сервер понимает, что если пришло число, то это писатель, и возвращает это-же число, чтоб подтвердить успешность записи.
 ```c
-#include <pthread.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <fcntl.h>
-#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <signal.h>
-#include <semaphore.h>
 #include <unistd.h>
-#include <stdio.h>
-#include <time.h>
-#include <stdlib.h>
-#include <sys/mman.h>
-
-#define MAX_READERS 4 // Максимальное количество читателей
-#define MAX_WRITERS 2  // Максимальное количество писателей
-
-int database = 0;  // Изначальное состояние базы данных
-int readers = 0;   // Количество читателей, которые сейчас читают базу данных
-
-sem_t mutex;       // Семафор для исключительного доступа к базе данных
-sem_t db_access;   // Семафор для синхронизации доступа читателей и писателей
-
-void* reader(void* arg) {
-    int id = *(int*) arg;
-    while (1) {
-        // Захват доступа к базе данных
-        sem_wait(&db_access);
-
-        // Чтение базы данных
-        printf("Reader %d is reading from database %d\n", id, database);
-        sleep(1);
-        sem_post(&db_access);
-
-        // Перерыв между чтениями
-        sleep(1);
-    }
-    return NULL;
-}
-
-void *writer(void *arg) {
-    int id = *(int*)arg;
-    while (1) {
-        sem_wait(&db_access); // Захват db_access, чтобы другие писатели и читатели не могли получить доступ к базе данных
-        // Изменение базы данных
-        database += 1;
-        printf("Writer %d is writing to the database: %d\n", id, database);
-        sleep(1);
-        sem_post(&db_access); // Освобождение db_access
-        sleep(1);
-    }
-    return NULL;
-}
-
-int main() {
-    pthread_t readers_threads[MAX_READERS];
-    pthread_t writers_threads[MAX_WRITERS];
-
-    sem_init(&mutex, 0, 1);
-    sem_init(&db_access, 0, 1);
-
-    // Создание читателей
-    for (int i = 0; i < MAX_READERS; i++) {
-        int *id = malloc(sizeof(int));
-        *id = i;
-        pthread_create(&readers_threads[i], NULL, reader, id);
-    }
-
-    // Создание писателей
-    for (int i = 0; i < MAX_WRITERS; i++) {
-        int *id = malloc(sizeof(int));
-        *id = i;
-        pthread_create(&writers_threads[i], NULL, writer, id);
-        }
-    // Ожидание завершения потоков
-    for (int i = 0; i < MAX_READERS; i++) {
-        pthread_join(readers_threads[i], NULL);
-        }
-
-    for (int i = 0; i < MAX_WRITERS; i++) {
-        pthread_join(writers_threads[i], NULL);
-        }
-
-    // Освобождение ресурсов
-    sem_destroy(&mutex);
-    sem_destroy(&db_access);
-    return 0;
-}
-```
-
-## Отчет на 5 баллов
-
-Почти все аналогично предыдущему пункту, только теперь семафоры POSIX неименованные. Хранение и редактирование БД также через разделяемую память стандарта POSIX.
-
-```c
-#include <pthread.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <string.h>
-#include <signal.h>
-#include <semaphore.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <time.h>
-#include <stdlib.h>
-#include <sys/mman.h>
-
-#define MAX_READERS 4 // Максимальное количество читателей
-#define MAX_WRITERS 2  // Максимальное количество писателей
-
-int database = 0;  // Изначальное состояние базы данных
-int readers = 0;   // Количество читателей, которые сейчас читают базу данных
-
-sem_t *mutex;       // Семафор для исключительного доступа к базе данных
-sem_t *db_access;   // Семафор для синхронизации доступа читателей и писателей
-
-void* reader(void* arg) {
-    int id = *(int*) arg;
-    while (1) {
-        // Захват доступа к базе данных
-        sem_wait(db_access);
-
-        // Чтение базы данных
-        printf("Reader %d is reading from database %d\n", id, database);
-        sleep(1);
-        sem_post(db_access);
-
-        // Перерыв между чтениями
-        sleep(1);
-    }
-    return NULL;
-}
-
-void *writer(void *arg) {
-    int id = *(int*)arg;
-    while (1) {
-        sem_wait(db_access); // Захват db_access, чтобы другие писатели и читатели не могли получить доступ к базе данных
-        // Изменение базы данных
-        database += 1;
-        printf("Writer %d is writing to the database: %d\n", id, database);
-        sleep(1);
-        sem_post(db_access); // Освобождение db_access
-        sleep(1);
-    }
-    return NULL;
-}
-
-int main() {
-    pthread_t readers_threads[MAX_READERS];
-    pthread_t writers_threads[MAX_WRITERS];
-    mutex = sem_open("mutex", O_CREAT, 0644, 0);
-    db_access = sem_open("db_access", O_CREAT, 0644, 0);
-
-    // Создание читателей
-    for (int i = 0; i < MAX_READERS; i++) {
-        int *id = malloc(sizeof(int));
-        *id = i;
-        pthread_create(&readers_threads[i], NULL, reader, id);
-    }
-
-    // Создание писателей
-    for (int i = 0; i < MAX_WRITERS; i++) {
-        int *id = malloc(sizeof(int));
-        *id = i;
-        pthread_create(&writers_threads[i], NULL, writer, id);
-        }
-    // Ожидание завершения потоков
-    for (int i = 0; i < MAX_READERS; i++) {
-        pthread_join(readers_threads[i], NULL);
-        }
-
-    for (int i = 0; i < MAX_WRITERS; i++) {
-        pthread_join(writers_threads[i], NULL);
-        }
-
-    // Освобождение ресурсов
-    sem_close(mutex);
-    sem_unlink("mutex");
-    sem_close(db_access);
-    sem_unlink("db_access");
-    return 0;
-}
-```
-
-## Отчет на 6 баллов
-
-Теперь за взаимодействие писателя и читателей отвечают семафоры UNIX SYSTEM V. БД хранится и редактируется через разделяемую память в стандарте UNIX SYSTEM V.
-
-```c
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/ipc.h>
-#include <sys/sem.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <sys/shm.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <time.h>
 
-#define MAX_WRITERS 2
-#define MAX_READERS 3
+#define BUFFER_SIZE 1024
 
-union semun {
-    int val;
-    struct semid_ds *buf;
-    unsigned short *array;
-    struct seminfo *__buf;
-};
-
-struct shared_mem {
-    int database;
-};
-
-int sem_id, shm_id;
-void* shm_ptr;
-struct shared_mem* shared_memory;
-
-void reader(int id, int database) {
-    while (1) {
-        // Ждем, пока писатель закончит запись
-        struct sembuf wait_writer = {0, -1, SEM_UNDO};
-        semop(sem_id, &wait_writer, 1);
-
-        // Проверяем доступ к бд и читаем
-        printf("Reader %d is reading from database %d\n", id, database);
-            sleep(1);
-
-            // Завершаем работу с бд
-            struct sembuf finish_reading = {0, 1, SEM_UNDO};
-            semop(sem_id, &finish_reading, 1);
-    }
-}
-
-void writer() {
-    while (1) {
-        // Изменим запись в бд
-        shared_memory->database++;
-
-        printf("Writer 0 is writing to the database: %d\n", shared_memory->database);
-
-        // Разрешаем чтение читателям
-        struct sembuf allow_readers = {0, MAX_READERS, SEM_UNDO};
-        semop(sem_id, &allow_readers, 1);
-
-        // Ждем, пока читатели дочитывают
-        struct sembuf wait_readers = {0, 0, SEM_UNDO};
-        semop(sem_id, &wait_readers, 1);
-        sleep(1);
-    }
-}
-
-int main() {
-    // Создаем и инициализируем cемафор
-    sem_id = semget(IPC_PRIVATE, 1, IPC_CREAT | 0666);
-    union semun sem_union;
-    sem_union.val = 0;
-    semctl(sem_id, 0, SETVAL, sem_union);
-
-    // Создаем и инициализируем разделяемую память
-    shm_id = shmget(IPC_PRIVATE, sizeof(struct shared_mem), IPC_CREAT | 0666);
-    shm_ptr = shmat(shm_id, NULL, 0);
-    shared_memory = (struct shared_mem*) shm_ptr;
-
-    // Инициализируем генератор случайных чисел
+void start_client(const char* server_ip, int server_port) {
+    int sock = 0, valread;
     srand(time(NULL));
+    struct sockaddr_in serv_addr;
+    char buffer[BUFFER_SIZE] = {0};
 
-    // Создаем читателей
-    for (int i = 0; i < MAX_READERS; i++) {
-        pid_t pid = fork();
-        if (pid < 0) {
-            printf("Читатель не создан\n");
-            return 1;
-        } else if (pid == 0) {
-            reader(i + 1, i + 1);
-            return 0;
-        }
+    // Create socket file descriptor
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
     }
 
-    // Создаем писателей
-    pid_t pid = fork();
-    if (pid < 0) {
-        printf("Писатель не создан\n");
-        return 1;
-    } else if (pid == 0) {
-        writer();
-        return 0;
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(server_port);
+
+    // Convert IPv4 and IPv6 addresses from text to binary form
+    if (inet_pton(AF_INET, server_ip, &serv_addr.sin_addr) <= 0) {
+        perror("Invalid address/Address not supported");
+        exit(EXIT_FAILURE);
     }
 
-    // Ждем завершения дочерних процессов
-    for (int i = 0; i < MAX_READERS + 1; i++) {
-        wait(NULL);
+    // Connect to the server
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("Connection failed");
+        exit(EXIT_FAILURE);
     }
 
-    // Освобождаем ресурсы
-    semctl(sem_id, 0, IPC_RMID, sem_union);
-    shmdt(shm_ptr);
-    shmctl(shm_id, IPC_RMID, NULL);
+    printf("Connected to the server\n");
+    while(1) {
+        // Send a transaction request to the server
+        int num = rand() % 100;
+        char message[128];
+        snprintf(message, sizeof(message), "%d\n", num);
+        send(sock, message, strlen(message), 0);
+       // Receive the current database value from the server
+       memset(buffer, 0, BUFFER_SIZE);
+       valread = recv(sock, buffer, BUFFER_SIZE, 0);
+       if (valread > 0) {
+           printf("Writer written: %s\n", buffer);
+       } else {
+           printf("Write failed\n");
+       }
+    }
 
-    return 0;
+    // Close the socket
+    close(sock);
 }
-```
-
-## Вывод программы на оценку 7
-
-![7point.png](https://github.com/hggfun/OS_IDZ2/blob/main/7point.png)
-## Отчет на 7 баллов
-
-Запускаю процессы читателей и писателей (соответственно 4 чтателя и 2 писателя). 
-
-Множество независимых процессов взаимодействуют с использованием именованных POSIX семафоров. Обмен данными ведется через разделяемую память в стандарте POSIX
-
-**Читатель:**
-
-```c
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <semaphore.h>
-#include <sys/mman.h>
-#include <string.h>
-
-sem_t *reader_semaphores[4];
-sem_t *mutex;
-int *database;
-int id;
 
 int main(int argc, char *argv[]) {
-    id = argv[1];
-    mutex = sem_open("mutex", O_CREAT, 0644, 1);
-    reader_semaphores[0] = sem_open("reader1", O_CREAT, 0644, 0);
-    reader_semaphores[1] = sem_open("reader2", O_CREAT, 0644, 0);
-    reader_semaphores[2] = sem_open("reader3", O_CREAT, 0644, 0);
-    reader_semaphores[3] = sem_open("reader4", O_CREAT, 0644, 0);
-    int shm = shm_open("shm", O_RDWR, 0644);
-    ftruncate(shm, 2 * sizeof(int));
-    database = mmap(NULL, 2 * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm, 0);
-    while (1) {
-        sem_wait(reader_semaphores[id]);
-        sleep(2);
-        printf("Reader %d is reading from database %d\n", id, database[0]);
+    if (argc != 3) {
+        printf("Usage: %s <server_ip> <server_port>\n", argv[0]);
+        return 1;
     }
-    sem_close(mutex);
-    sem_close(reader_semaphores[0]);
-    sem_close(reader_semaphores[1]);
-    sem_close(reader_semaphores[2]);
-    sem_close(reader_semaphores[3]);
-    sem_unlink("reader1");
-    sem_unlink("reader2");
-    sem_unlink("reader3");
-    sem_unlink("reader4");
-    sem_unlink("mutex");
+
+    const char* server_ip = argv[1];
+    int server_port = atoi(argv[2]);
+
+    start_client(server_ip, server_port);
+
     return 0;
 }
 ```
 
-**Писатель:**
+Читатель: отправляет запрос с текстом "read", а в ответ получает текущее состояние базы данных (т.е. число), после чего ждет 2 секунды, чтобы снова отправить запрос.
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#define BUFFER_SIZE 1024
+
+int name;
+
+void start_client(const char* server_ip, int server_port) {
+    int sock = 0, valread;
+    struct sockaddr_in serv_addr;
+    char buffer[BUFFER_SIZE] = {0};
+
+    // Create socket file descriptor
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(server_port);
+
+    // Convert IPv4 and IPv6 addresses from text to binary form
+    if (inet_pton(AF_INET, server_ip, &serv_addr.sin_addr) <= 0) {
+        perror("Invalid address/Address not supported");
+        exit(EXIT_FAILURE);
+    }
+
+    // Connect to the server
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("Connection failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Connected to the server\n");
+    while(1) {
+        // Send a transaction request to the server
+        send(sock, "read", strlen("read"), 0);
+       // Receive the current database value from the server
+       memset(buffer, 0, BUFFER_SIZE);
+       valread = recv(sock, buffer, BUFFER_SIZE, 0);
+       if (valread > 0) {
+           printf("Reader number %d read: %s\n", name, buffer);
+       } else {
+           printf("Read failed\n");
+       }
+    }
+
+    // Close the socket
+    close(sock);
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 4) {
+        printf("Port num and name required");
+        return 1;
+    }
+
+    const char* server_ip = argv[1];
+    int server_port = atoi(argv[2]);
+    name = atoi(argv[3]);
+
+    start_client(server_ip, server_port);
+
+    return 0;
+}
+
+```
+
+Наблюдатель: постоянно получает от сервера информацию о каком либо событии (запись или чтение) и выводит ее.
 
 ```c
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
-#include <time.h>
-#include <fcntl.h>
-#include <semaphore.h>
-#include <sys/mman.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
-sem_t *reader_semaphores[4];
-sem_t *mutex;
-int *database;
+#define BUFFER_SIZE 1024
 
-int main() {
-    srand(time(NULL));
-    mutex = sem_open("mutex", O_CREAT, 0644, 1);
-    reader_semaphores[0] = sem_open("reader1", O_CREAT, 0644, 0);
-    reader_semaphores[1] = sem_open("reader2", O_CREAT, 0644, 0);
-    reader_semaphores[2] = sem_open("reader3", O_CREAT, 0644, 0);
-    reader_semaphores[3] = sem_open("reader4", O_CREAT, 0644, 0);
-    int shm = shm_open("shm", O_RDWR, 0644);
-    ftruncate(shm, 2 * sizeof(int));
-    database = mmap(NULL, 2 * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm, 0);
-    database[0] = -1;
-    while (1) {
-        database[0] = database[0] + 1;
-        int k = rand() % 2;
-        printf("Writer %d is writing to the database: %d\n", k, database[0]);
-        k = rand() % 5;
-        for (int i = k; i > 0; i--) {
-        int t = rand() % 4;
-        sem_post(reader_semaphores[t]);
-        sleep(3);
-        sem_wait(mutex);  
-        sleep(1);
-        }
+
+void start_client(const char* server_ip, int server_port) {
+    int sock = 0, valread;
+    struct sockaddr_in serv_addr;
+    char buffer[BUFFER_SIZE] = {0};
+
+    // Create socket file descriptor
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
     }
-    sem_close(mutex);
-    sem_close(reader_semaphores[0]);
-    sem_close(reader_semaphores[1]);
-    sem_close(reader_semaphores[2]);
-    sem_close(reader_semaphores[3]);
-    sem_unlink("reader1");
-    sem_unlink("reader2");
-    sem_unlink("reader3");
-    sem_unlink("reader4");
-    sem_unlink("mutex");
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(server_port);
+
+    // Convert IPv4 and IPv6 addresses from text to binary form
+    if (inet_pton(AF_INET, server_ip, &serv_addr.sin_addr) <= 0) {
+        perror("Invalid address/Address not supported");
+        exit(EXIT_FAILURE);
+    }
+
+    // Connect to the server
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("Connection failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Connected to the server\n");
+    while(1) {
+       memset(buffer, 0, BUFFER_SIZE);
+       valread = recv(sock, buffer, BUFFER_SIZE, 0);
+       if (valread > 0) {
+           printf("Viewer noticed that: %s\n", buffer);
+       } else {
+           printf("Viewing failed\n");
+       }
+    }
+
+    // Close the socket
+    close(sock);
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        printf("Port num required");
+        return 1;
+    }
+
+    const char* server_ip = argv[1];
+    int server_port = atoi(argv[2]);
+
+    start_client(server_ip, server_port);
+
     return 0;
 }
+```
+## Вывод программ на оценку 4-5
+
+![4-5point.png](https://github.com/hggfun/OS_IDZ3/blob/main/4-5point.png)
+
+## Отчет на 4-5 балла
+И так, сервер в мейне получает адрес хоста и порта, разворачивается на нем, в методе старт_сервер. В нем он инициализирует также читателей и писателей, каждому из которых вызывается метод, в котором клиент может захватить мьютекс, прочитать/записать и отпустить мьютекс. И так по кругу.
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <pthread.h>
+
+#define BUFFER_SIZE 1024
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond_writer = PTHREAD_COND_INITIALIZER;
+pthread_cond_t cond_reader = PTHREAD_COND_INITIALIZER;
+
+int writer_count = 0;
+int reader_count = 0;
+int database = 0;
+
+void* client_thread(void* arg) {
+    int client_socket = *((int*)arg);
+    int wait = 2;
+    char buffer[BUFFER_SIZE];
+    while(1) {
+// Lock the mutex
+    pthread_mutex_lock(&mutex);
+    // Receive data from the client
+    memset(buffer, 0, BUFFER_SIZE);
+    recv(client_socket, buffer, BUFFER_SIZE, 0);
+    if (buffer[0] != 'r') {
+        database = atoi(buffer);
+        wait = 0;
+    }
+    // Send the current database value to the client
+    sprintf(buffer, "%d", database);
+    send(client_socket, buffer, strlen(buffer), 0);
+
+    // Unlock the mutex
+    pthread_mutex_unlock(&mutex);
+    sleep(wait);
+    }
+    
+    // Close the client socket
+    close(client_socket);
+
+    pthread_exit(NULL);
+}
+
+void start_server(const char* host, int port) {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
+
+    // Create socket file descriptor
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Set socket options
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+        perror("Setsockopt failed");
+        exit(EXIT_FAILURE);
+    }
+
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(port);
+
+    // Bind the socket to the specified address and port
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Start listening for incoming connections
+    if (listen(server_fd, 3) < 0) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Server listening on %s:%d\n", host, port);
+
+    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+            perror("Accept failed");
+            exit(EXIT_FAILURE);
+        } else {
+            printf("Accepted writer\n");
+        }
+
+        // Create a thread for the client
+        pthread_t thread;
+        int* client_socket = malloc(sizeof(int));
+        *client_socket = new_socket;
+
+        if (pthread_create(&thread, NULL, client_thread, client_socket) != 0) {
+            perror("Thread creation failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Detach the thread
+        pthread_detach(thread);
+
+    // Accept incoming connections and create threads for handling clients
+    for (int i = 0; i < 3; ++i) {
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+            perror("Accept failed");
+            exit(EXIT_FAILURE);
+        } else {
+            printf("Accepted reader number %d\n", i + 1);
+        }
+
+        // Create a thread for the client
+        pthread_t thread;
+        int* client_socket = malloc(sizeof(int));
+        *client_socket = new_socket;
+
+        if (pthread_create(&thread, NULL, client_thread, client_socket) != 0) {
+            perror("Thread creation failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Detach the thread
+        pthread_detach(thread);
+    }
+    while(1) {
+    }
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        printf("Usage: %s <host> <port>\n", argv[0]);
+        return 1;
+    }
+
+    const char* host = argv[1];
+    int port = atoi(argv[2]);
+
+    start_server(host, port);
+
+    return 0;
+}
+```
+## Вывод программы на 6-7 баллов
+![6-7point.png](https://github.com/hggfun/OS_IDZ3/blob/main/6-7point.png)
+## Отчет на 6-7 баллов
+
+Почти все аналогично предыдущему пункту, только теперь инициализируется еще и наблюдатель. Метод для обработки теперь отправляет информацию не только конкретному клиенту, но и наблюдателю.
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <pthread.h>
+
+#define BUFFER_SIZE 1024
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond_writer = PTHREAD_COND_INITIALIZER;
+pthread_cond_t cond_reader = PTHREAD_COND_INITIALIZER;
+
+int writer_count = 0;
+int reader_count = 0;
+int database = 0;
+int* viewer;
+
+void* client_thread(void* arg) {
+    int client_socket = *((int*)arg);
+    int viewer_socket = *((int*)viewer);
+    int wait = 2;
+    char buffer[BUFFER_SIZE];
+    while(1) {
+// Lock the mutex
+    pthread_mutex_lock(&mutex);
+    // Receive data from the client
+    memset(buffer, 0, BUFFER_SIZE);
+    recv(client_socket, buffer, BUFFER_SIZE, 0);
+    if (buffer[0] != 'r') {
+        database = atoi(buffer);
+        wait = 0;
+        send(viewer_socket, "writer is writing", strlen("writer is writing"), 0);
+    } else {
+        send(viewer_socket, "reader is reading", strlen("reader is reading"), 0);
+    }
+    // Send the current database value to the client
+    sprintf(buffer, "%d", database);
+    send(client_socket, buffer, strlen(buffer), 0);
+
+    // Unlock the mutex
+    pthread_mutex_unlock(&mutex);
+    sleep(wait);
+    }
+    
+    // Close the client socket
+    close(client_socket);
+
+    pthread_exit(NULL);
+}
+
+void start_server(const char* host, int port) {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
+
+    // Create socket file descriptor
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Set socket options
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+        perror("Setsockopt failed");
+        exit(EXIT_FAILURE);
+    }
+
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(port);
+
+    // Bind the socket to the specified address and port
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Start listening for incoming connections
+    if (listen(server_fd, 3) < 0) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Server listening on %s:%d\n", host, port);
+
+    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+            perror("Accept failed");
+            exit(EXIT_FAILURE);
+        } else {
+            printf("Accepted viewer\n");
+        }
+        viewer = malloc(sizeof(int));
+        *viewer = new_socket;
+
+    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+            perror("Accept failed");
+            exit(EXIT_FAILURE);
+        } else {
+            printf("Accepted writer\n");
+        }
+
+        // Create a thread for the client
+        pthread_t thread;
+        int* client_socket = malloc(sizeof(int));
+        *client_socket = new_socket;
+
+        if (pthread_create(&thread, NULL, client_thread, client_socket) != 0) {
+            perror("Thread creation failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Detach the thread
+        pthread_detach(thread);
+
+    // Accept incoming connections and create threads for handling clients
+    for (int i = 0; i < 3; ++i) {
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+            perror("Accept failed");
+            exit(EXIT_FAILURE);
+        } else {
+            printf("Accepted reader number %d\n", i + 1);
+        }
+
+        // Create a thread for the client
+        pthread_t thread;
+        int* client_socket = malloc(sizeof(int));
+        *client_socket = new_socket;
+
+        if (pthread_create(&thread, NULL, client_thread, client_socket) != 0) {
+            perror("Thread creation failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Detach the thread
+        pthread_detach(thread);
+    }
+    while(1) {
+    }
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        printf("Usage: %s <host> <port>\n", argv[0]);
+        return 1;
+    }
+
+    const char* host = argv[1];
+    int port = atoi(argv[2]);
+
+    start_server(host, port);
+
+    return 0;
+}
+
 ```
